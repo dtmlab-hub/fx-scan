@@ -3,7 +3,7 @@ name: scan
 on:
   schedule:
     # 15分ごと（毎時0分は混み合って遅れやすいので3分ずらす）。市場休みの間は候補が出ないだけ
-    - cron: "3,18,33,48 * * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
