@@ -1,13 +1,16 @@
 name: scan
 
+# GitHub の定期実行（cron）は無料枠だと遅れたり動かないことがあるため、
+# 1回の実行の中で約5時間40分、15分おきに判定を繰り返し、終わる前に自分自身を呼び直す（連鎖）。
+# cron は、連鎖が途切れたときの再開用の保険として残す。
 on:
   schedule:
-    # 15分ごと（毎時0分は混み合って遅れやすいので3分ずらす）。市場休みの間は候補が出ないだけ
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write  # sent_signals.json（送信済みの記録）を保存するため
+  contents: write  # sent_signals.json などの記録を保存するため
+  actions: write   # 次の実行を呼び出すため
 
 concurrency:
   group: scan
@@ -16,7 +19,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,14 +27,22 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: scan and notify
-        run: python run_cloud.py
+      - name: scan every 15 minutes
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      - name: save state
-        if: always()
         run: |
           git config user.name "scan-bot"
           git config user.email "scan-bot@users.noreply.github.com"
-          git add sent_signals.json health.json
-          git diff --cached --quiet || (git commit -m "state" && git push)
+          END=$((SECONDS + 20400))
+          while true; do
+            python run_cloud.py || true
+            git add sent_signals.json health.json
+            git diff --cached --quiet || (git commit -q -m "state" && git pull -q --rebase origin main && git push -q origin main) || true
+            [ $((SECONDS + 900)) -ge $END ] && break
+            sleep 900
+          done
+      - name: call next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run scan.yml --repo "$GITHUB_REPOSITORY"

@@ -54,6 +54,7 @@ def update_health(path: pathlib.Path, ok: bool, now: dt.datetime, send: Send, er
     except (OSError, ValueError):
         h = {}
     fails = int(h.get("fail_runs", 0))
+    h["last_run"] = now.isoformat()  # 動いている証拠（連続実行の確認と、休眠防止を兼ねる）
     if ok:
         if fails >= ALERT_AFTER_FAILS:
             send("✅ クラウド版が復旧しました（自動候補の判定が再開）")
