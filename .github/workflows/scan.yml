@@ -1,0 +1,37 @@
+name: scan
+
+on:
+  schedule:
+    # 15分ごと（毎時0分は混み合って遅れやすいので3分ずらす）。市場休みの間は候補が出ないだけ
+    - cron: "3,18,33,48 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # sent_signals.json（送信済みの記録）を保存するため
+
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: scan and notify
+        run: python run_cloud.py
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      - name: save state
+        if: always()
+        run: |
+          git config user.name "scan-bot"
+          git config user.email "scan-bot@users.noreply.github.com"
+          git add sent_signals.json health.json
+          git diff --cached --quiet || (git commit -m "state" && git push)
