@@ -24,6 +24,7 @@ import requests
 
 HERE = pathlib.Path(__file__).resolve().parent
 SENT_PATH = HERE / "sent_signals.json"
+PLAN_STATE_PATH = HERE / "plan_state.json"
 HEALTH_PATH = HERE / "health.json"
 JST = dt.timezone(dt.timedelta(hours=9))
 FOOTER = "記録とルールからの計算です。売買の判断はご自身で"
@@ -162,6 +163,18 @@ def send_discord(text: str) -> bool:
     return True
 
 
+def run_morning_plans(now: dt.datetime) -> None:
+    """Secret（FX_PLANS）の朝の計画を判定して通知する。値は画面に出さず、失敗は種類だけ表示する。"""
+    try:
+        import cloud_plans
+        from app import plan_watch
+
+        cloud_plans.run_plans(now, os.environ.get("FX_PLANS", ""), plan_watch.yfinance_feed, send_discord,
+                              PLAN_STATE_PATH)
+    except Exception as e:  # noqa: BLE001
+        print(f"朝の計画の判定に失敗: {type(e).__name__}", file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="波動スキャナー クラウド版（通知のみ・注文はしない）")
     ap.add_argument("--dry-run", action="store_true")
@@ -172,6 +185,10 @@ def main() -> int:
         print("テスト通知:", "送信OK" if ok else "失敗")
         return 0 if ok else 1
     now = dt.datetime.now(JST)
+    if not args.dry_run:
+        run_morning_plans(now)  # 朝の計画（毎回・5分ごと）。失敗しても自動候補の判定は続ける
+    if now.minute % 15 >= 5:
+        return 0  # 自動候補は15分に1回（M15 確定直後の回）だけ。直近60分は次回にも拾う
     try:
         out = run(now=now, scan=scan_all, send=send_discord, dry_run=args.dry_run)
     except Exception as e:  # noqa: BLE001
